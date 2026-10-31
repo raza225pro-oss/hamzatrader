@@ -1,0 +1,7 @@
+python-telegram-bot>=22.2
+ccxt
+yfinance
+pandas
+numpy
+python-dotenv
+flask
