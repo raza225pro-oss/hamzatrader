@@ -22,7 +22,7 @@ app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "Hamza Trader Quotex Live Scanner Bot is running!"
+    return "Hamza Trader Quotex Real Scanner Bot is running!"
 
 @app.route('/health')
 def health():
@@ -38,8 +38,8 @@ raw_ids = os.getenv("ALLOWED_IDS", "")
 ALLOWED_IDS = [int(x.strip()) for x in raw_ids.split(",") if x.strip().isdigit()]
 PKT = timezone(timedelta(hours=5))
 
-# --- Quotex Live Forex, Commodities & Indices (via Yahoo Finance) ---
-QUOTEX_FOREX_MARKETS = {
+# --- 100% REAL QUOTEX LIVE FOREX & COMMODITIES (Monday - Friday) ---
+QUOTEX_LIVE_FOREX = {
     "EUR/USD": "EURUSD=X",
     "GBP/USD": "GBPUSD=X",
     "USD/JPY": "JPY=X",
@@ -64,15 +64,16 @@ QUOTEX_FOREX_MARKETS = {
     "NZD/JPY": "NZDJPY=X",
     "XAU/USD (Gold)": "GC=F",
     "XAG/USD (Silver)": "SI=F",
-    "UKBrent (Oil)": "CL=F"
+    "UKBrent (Oil)": "BZ=F"
 }
 
-# --- Quotex Live Crypto Markets (24/7 via CCXT) ---
-QUOTEX_CRYPTO_MARKETS = [
-    'BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'BNB/USDT', 'XRP/USDT',
-    'ADA/USDT', 'DOGE/USDT', 'LTC/USDT', 'DOT/USDT', 'LINK/USDT',
-    'AVAX/USDT', 'TRX/USDT', 'TON/USDT', 'SHIB/USDT', 'PEPE/USDT'
-]
+# --- REAL QUOTEX CRYPTO PAIRS (24/7 Real Chart) ---
+QUOTEX_REAL_CRYPTO = {
+    "Bitcoin (BTC)": "BTC/USDT",
+    "Ethereum (ETH)": "ETH/USDT",
+    "Litecoin (LTC)": "LTC/USDT",
+    "Binance Coin (BNB)": "BNB/USDT"
+}
 
 def init_exchange():
     for ex_name in ['binance', 'bybit', 'kucoin']:
@@ -91,11 +92,9 @@ def get_next_entry_timing():
     now_pkt = datetime.now(PKT)
     current_time_str = now_pkt.strftime("%I:%M:%S %p")
     
-    # Calculate next exact minute boundary (00 seconds)
     next_min = (now_pkt + timedelta(minutes=1)).replace(second=0, microsecond=0)
     wait_seconds = int((next_min - now_pkt).total_seconds())
     
-    # Agar candle close hone mein 20 sec se kam hain to us se agle minute ki trade dega
     if wait_seconds < 20:
         next_min = next_min + timedelta(minutes=1)
         wait_seconds = int((next_min - now_pkt).total_seconds())
@@ -104,7 +103,7 @@ def get_next_entry_timing():
     return current_time_str, entry_time_str, wait_seconds
 
 def evaluate_high_accuracy_strategies(df, market_name):
-    """Upgraded Sniper Accuracy Engine with Supertrend, S/R Zones, Candle Dominance & Anti-Chop Filters"""
+    """Real Chart Sniper Accuracy Engine"""
     try:
         if df is None or len(df) < 55:
             return None
@@ -139,7 +138,7 @@ def evaluate_high_accuracy_strategies(df, market_name):
         df['upper_band'] = df['sma_20'] + (df['std'] * 2)
         df['lower_band'] = df['sma_20'] - (df['std'] * 2)
 
-        # 5. Stochastic Oscillator (14, 3) & Williams %R (14)
+        # 5. Stochastic (14, 3) & Williams %R (14)
         df['low_14'] = df['low'].rolling(window=14).min()
         df['high_14'] = df['high'].rolling(window=14).max()
         denom = (df['high_14'] - df['low_14']).replace(0, np.nan)
@@ -163,28 +162,20 @@ def evaluate_high_accuracy_strategies(df, market_name):
         dx = 100 * ((plus_di - minus_di).abs() / (plus_di + minus_di).replace(0, np.nan))
         df['adx'] = dx.ewm(alpha=1/14, adjust=False).mean().fillna(20)
 
-        # 7. Dynamic Support & Resistance (Last 20 Candles High/Low)
+        # 7. Support & Resistance (Last 20 Candles)
         df['res_20'] = df['high'].shift(1).rolling(window=20).max()
         df['sup_20'] = df['low'].shift(1).rolling(window=20).min()
-
-        # 8. Supertrend Approximation (Factor 3.0)
-        hl2 = (df['high'] + df['low']) / 2
-        df['st_upper'] = hl2 + (2.5 * df['atr'])
-        df['st_lower'] = hl2 - (2.5 * df['atr'])
 
         closed = df.iloc[-2]
         prev = df.iloc[-3]
         live = df.iloc[-1]
 
-        # --- STRICT ANTI-CHOP & DOJI FILTERS ---
         candle_range = closed['high'] - closed['low']
         candle_body = abs(closed['close'] - closed['open'])
 
-        # 1. Reject dead or low-volatility candles
         if pd.isna(closed['atr']) or closed['atr'] == 0 or candle_range < (closed['atr'] * 0.45):
             return None
 
-        # 2. Reject indecisive spinning tops / weak body candles (unless clear hammer/pinbar)
         body_ratio = candle_body / candle_range if candle_range > 0 else 0
         lower_wick = min(closed['close'], closed['open']) - closed['low']
         upper_wick = closed['high'] - max(closed['close'], closed['open'])
@@ -193,46 +184,37 @@ def evaluate_high_accuracy_strategies(df, market_name):
         if body_ratio < 0.35 and not is_pinbar:
             return None
 
-        # 3. Reject flat/ranging market (ADX too weak AND Bollinger Bands squeezed)
         if live['adx'] < 20 and (closed['upper_band'] - closed['lower_band']) < (closed['atr'] * 2.2):
             return None
 
         up_score = 0
         down_score = 0
 
-        # --- SNIPER CONFLUENCE SCORING ---
-
-        # 1. Multi-EMA Trend Alignment + Supertrend Filter
         if closed['close'] > closed['ema_21'] > closed['ema_50'] and closed['ema_5'] > closed['ema_9']:
             up_score += 20
         elif closed['close'] < closed['ema_21'] < closed['ema_50'] and closed['ema_5'] < closed['ema_9']:
             down_score += 20
 
-        # 2. Confirmed EMA 5/9 Fresh Crossover
         if prev['ema_5'] <= prev['ema_9'] and closed['ema_5'] > closed['ema_9'] and live['close'] > closed['ema_5']:
             up_score += 18
         elif prev['ema_5'] >= prev['ema_9'] and closed['ema_5'] < closed['ema_9'] and live['close'] < closed['ema_5']:
             down_score += 18
 
-        # 3. Strong Momentum Candle Continuation (Marubozu / Breakout)
         if closed['close'] > closed['open'] and body_ratio >= 0.65 and closed['close'] > closed['ema_9']:
             up_score += 15
         elif closed['close'] < closed['open'] and body_ratio >= 0.65 and closed['close'] < closed['ema_9']:
             down_score += 15
 
-        # 4. Bollinger Band + Support/Resistance Sureshot Rejection
         if closed['low'] <= closed['lower_band'] and closed['close'] > closed['open'] and closed['rsi'] < 35:
             up_score += 22
         elif closed['high'] >= closed['upper_band'] and closed['close'] < closed['open'] and closed['rsi'] > 65:
             down_score += 22
 
-        # 5. Support / Resistance Level Bounce
         if closed['low'] <= closed['sup_20'] * 1.0003 and closed['close'] > closed['sup_20'] and lower_wick > candle_body:
             up_score += 16
         elif closed['high'] >= closed['res_20'] * 0.9997 and closed['close'] < closed['res_20'] and upper_wick > candle_body:
             down_score += 16
 
-        # 6. RSI (7) + Stochastic + Williams %R Triple Oscillator Hook
         if closed['rsi'] < 28 and live['rsi'] > closed['rsi'] and closed['stoch_k'] < 25 and closed['will_r'] < -78:
             up_score += 20
         elif closed['rsi'] > 72 and live['rsi'] < closed['rsi'] and closed['stoch_k'] > 75 and closed['will_r'] > -22:
@@ -242,36 +224,29 @@ def evaluate_high_accuracy_strategies(df, market_name):
         elif 33 <= closed['rsi'] <= 47 and closed['rsi'] < prev['rsi'] and closed['macd_hist'] < prev['macd_hist']:
             down_score += 12
 
-        # 7. Confirmed Engulfing Pattern
         if closed['close'] > closed['open'] and prev['close'] < prev['open'] and closed['close'] > prev['open'] and candle_body > abs(prev['close'] - prev['open']):
             up_score += 16
         elif closed['close'] < closed['open'] and prev['close'] > prev['open'] and closed['close'] < prev['open'] and candle_body > abs(prev['close'] - prev['open']):
             down_score += 16
 
-        # 8. ADX Trend Power Confirmation
         if live['adx'] >= 26:
             if closed['ema_5'] > closed['ema_21']:
                 up_score += 10
             elif closed['ema_5'] < closed['ema_21']:
                 down_score += 10
 
-        # 9. Live Candle Pressure Check (Block signal if live candle is strongly reversing against setup)
         if up_score > down_score and live['close'] < closed['low']:
             return None
         if down_score > up_score and live['close'] > closed['high']:
             return None
 
-        # Require high minimum score (38+) and clear dominance gap (20+)
         score_diff = abs(up_score - down_score)
         max_score = max(up_score, down_score)
 
-        if max_score < 38 or score_diff < 20:
+        if max_score < 36 or score_diff < 18:
             return None
 
-        if up_score > down_score:
-            direction = "UP 🟢⬆️"
-        else:
-            direction = "DOWN 🔴⬇️"
+        direction = "UP 🟢⬆️" if up_score > down_score else "DOWN 🔴⬇️"
 
         return {
             'symbol': market_name,
@@ -284,19 +259,29 @@ def evaluate_high_accuracy_strategies(df, market_name):
 
 def scan_all_quotex_markets():
     signals = []
+    forex_is_open = False
 
-    # 1. Scan Quotex Live Forex & Commodities via Yahoo Finance
+    # 1. Check Real Live Forex Markets (Monday to Friday)
     try:
-        yf_tickers = list(QUOTEX_FOREX_MARKETS.values())
+        yf_tickers = list(QUOTEX_LIVE_FOREX.values())
         data = yf.download(tickers=yf_tickers, period="1d", interval="1m", group_by='ticker', progress=False, threads=True)
         
-        for market_name, yf_sym in QUOTEX_FOREX_MARKETS.items():
+        now_utc = datetime.now(timezone.utc)
+
+        for market_name, yf_sym in QUOTEX_LIVE_FOREX.items():
             try:
                 if yf_sym in data and not data[yf_sym].empty:
                     sub_df = data[yf_sym].copy().dropna(subset=['Close'])
                     if len(sub_df) >= 55:
-                        # Ensure market is actively moving (not closed on weekend)
-                        if sub_df['Close'].iloc[-1] != sub_df['Close'].iloc[-5]:
+                        # Check if last candle is fresh (within last 10 mins) and moving
+                        last_candle_time = sub_df.index[-1].to_pydatetime()
+                        if last_candle_time.tzinfo is None:
+                            last_candle_time = last_candle_time.replace(tzinfo=timezone.utc)
+                        
+                        time_diff_mins = (now_utc - last_candle_time).total_seconds() / 60.0
+
+                        if time_diff_mins <= 15 and sub_df['Close'].iloc[-1] != sub_df['Close'].iloc[-5]:
+                            forex_is_open = True
                             clean_df = pd.DataFrame({
                                 'open': sub_df['Open'].values,
                                 'high': sub_df['High'].values,
@@ -306,35 +291,32 @@ def scan_all_quotex_markets():
                             })
                             res = evaluate_high_accuracy_strategies(clean_df, market_name)
                             if res:
-                                res['is_forex'] = True
                                 signals.append(res)
             except Exception:
                 continue
     except Exception as e:
         logger.warning(f"Yahoo Finance Forex fetch issue: {e}")
 
-    # 2. Scan Quotex Live Crypto Pairs (24/7 Active)
-    for sym in QUOTEX_CRYPTO_MARKETS:
+    # 2. Check Real Crypto Pairs (Only the 4 main ones that match real global prices)
+    for crypto_name, sym in QUOTEX_REAL_CRYPTO.items():
         try:
             ohlcv = exchange.fetch_ohlcv(sym, timeframe='1m', limit=70)
             if ohlcv and len(ohlcv) >= 55:
                 df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-                clean_name = sym.replace('/USDT', '/USD')
-                res = evaluate_high_accuracy_strategies(df, clean_name)
+                res = evaluate_high_accuracy_strategies(df, crypto_name)
                 if res:
-                    res['is_forex'] = False
                     signals.append(res)
         except Exception:
             continue
 
-    return signals
+    return signals, forex_is_open
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     welcome_text = (
         "🔥 *HAMZA TRADER QUOTEX BOT* 🔥\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
-        "⚡ *Timeframe:* `1 Minute (M1)`\n"
-        "🎯 *Mode:* `Sniper High-Accuracy`\n"
+        "⚡ *Timeframe:* `1 Minute`\n"
+        "📊 *Data:* `100% Real Live Market`\n"
         "━━━━━━━━━━━━━━━━━━━━\n\n"
         "👉 Signal lene ke liye `/scan` send karein."
     )
@@ -343,29 +325,36 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def scan_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     status_msg = await update.message.reply_text(
         "🔍 *HAMZA TRADER SCANNING...*\n"
-        "Best sureshot signal filter ho raha hai, wait karein...",
+        "Real Live Market check ho rahi hai...",
         parse_mode='Markdown'
     )
 
-    found_signals = await asyncio.to_thread(scan_all_quotex_markets)
+    found_signals, forex_is_open = await asyncio.to_thread(scan_all_quotex_markets)
 
     try:
         await status_msg.delete()
     except Exception:
         pass
 
-    if not found_signals:
+    if not forex_is_open and not found_signals:
         await update.message.reply_text(
-            "⚠️ *Abhi koi strong signal nahi mila!*\n"
-            "Market choppy hai. 20-30 seconds baad dobara `/scan` karein.",
+            "🛑 *LIVE FOREX MARKET CLOSED HAI (Weekend)*\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "Aaj Saturday/Sunday ki wajah se `EUR/USD`, `USD/JPY`, `Gold` waghera ki Live Markets band hain.\n\n"
+            "⚠️ Quotex par is waqt sirf **OTC** chal rahi hai jo ke broker ka apna private chart hota hai. Real signals Monday subah se start honge!",
             parse_mode='Markdown'
         )
         return
 
-    # Sort by highest score first, prioritizing Live Forex when open
-    found_signals.sort(key=lambda x: (1 if x.get('is_forex') else 0, x['score']), reverse=True)
+    if not found_signals:
+        await update.message.reply_text(
+            "⚠️ *Abhi koi 100% strong setup nahi bana!*\n"
+            "30 seconds baad dobara `/scan` karein.",
+            parse_mode='Markdown'
+        )
+        return
 
-    # Top 3 strongest signals
+    found_signals.sort(key=lambda x: x['score'], reverse=True)
     top_signals = found_signals[:3]
     current_time_str, entry_time_str, wait_seconds = get_next_entry_timing()
 
@@ -377,7 +366,7 @@ async def scan_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"⏳ *Time:* `1 Minute`\n"
             f"🎯 *Direction:* *{sig['direction']}*\n"
             f"━━━━━━━━━━━━━━━━━━\n"
-            f"🕒 *Scan Time:* `{current_time_str}`\n"
+            f"🕒 *Now:* `{current_time_str}`\n"
             f"⏰ *Trade Time:* `{entry_time_str}` _(Wait {wait_seconds}s)_"
         )
 
