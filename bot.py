@@ -38,7 +38,7 @@ app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "AliTrader Quotex Live VIP Terminal is running!"
+    return "Quotex Live VIP Terminal is running!"
 
 @app.route('/health')
 def health():
@@ -48,7 +48,7 @@ def run_flask():
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port, use_reloader=False)
 
-# --- Configuration & AliTrader Branding ---
+# --- Configuration & Branding ---
 TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_ID = int(os.getenv("ADMIN_ID", "0")) if os.getenv("ADMIN_ID", "").strip().isdigit() else 0
 raw_ids = os.getenv("ALLOWED_IDS", "")
@@ -58,12 +58,12 @@ if ADMIN_ID:
 
 QUOTEX_PARTNER_LINK = os.getenv("QUOTEX_PARTNER_LINK", "https://broker-qx.pro/sign-up/?lid=2111446")
 EXPECTED_LINK_ID = os.getenv("EXPECTED_LINK_ID", "")
-BINANCE_PAY_ID = os.getenv("BINANCE_PAY_ID", "876543210 (AliTrader)")
+BINANCE_PAY_ID = os.getenv("BINANCE_PAY_ID", "876543210")
 PREMIUM_PRICE = os.getenv("PREMIUM_PRICE", "$20 USDT (Lifetime Access)")
 PARTNER_BOT_USERNAME = os.getenv("PARTNER_BOT_USERNAME", "QuotexPartnerBot")
 
-OWNER_USERNAME = os.getenv("OWNER_USERNAME", "AliTrader01").lstrip("@")
-VIP_GROUP_URL = os.getenv("VIP_GROUP_URL", "https://t.me/AliTrader_VIP")
+# Fixed to @hamzutrader
+OWNER_USERNAME = "hamzutrader"
 
 TG_API_ID = os.getenv("TG_API_ID", "").strip()
 TG_API_HASH = os.getenv("TG_API_HASH", "").strip()
@@ -144,30 +144,41 @@ async def verify_with_quotex_partner_bot(trader_id: str):
             return "ERROR", str(e)
 
 # ============================================================================
-# 100% VERIFIED QUOTEX LIVE FOREX PAIRS ONLY (NO OTC, NO FAKE PAIRS)
+# EXACT QUOTEX LIVE BOARD CURRENCY PAIRS (ORDERED BY QUOTEX AVAILABILITY)
 # ============================================================================
 QUOTEX_LIVE_MARKETS = {
+    "USD/JPY": "JPY=X",
+    "AUD/JPY": "AUDJPY=X",
     "EUR/USD": "EURUSD=X",
     "GBP/USD": "GBPUSD=X",
-    "USD/JPY": "JPY=X",
-    "AUD/USD": "AUDUSD=X",
-    "USD/CAD": "CAD=X",
-    "USD/CHF": "CHF=X",
-    "EUR/GBP": "EURGBP=X",
     "EUR/JPY": "EURJPY=X",
     "GBP/JPY": "GBPJPY=X",
-    "AUD/JPY": "AUDJPY=X",
+    "AUD/CAD": "AUDCAD=X",
+    "AUD/USD": "AUDUSD=X",
+    "USD/CAD": "CAD=X",
+    "EUR/GBP": "EURGBP=X",
+    "GBP/AUD": "GBPAUD=X",
     "EUR/AUD": "EURAUD=X",
     "EUR/CAD": "EURCAD=X",
-    "GBP/AUD": "GBPAUD=X",
     "GBP/CAD": "GBPCAD=X",
-    "GBP/CHF": "GBPCHF=X",
-    "AUD/CAD": "AUDCAD=X",
-    "AUD/CHF": "AUDCHF=X",
     "CAD/JPY": "CADJPY=X",
-    "CHF/JPY": "CHFJPY=X",
-    "EUR/CHF": "EURCHF=X",
+    "USD/CHF": "CHF=X",
+    "GBP/CHF": "GBPCHF=X",
+    "AUD/CHF": "AUDCHF=X",
 }
+
+# Pairs that stay open on Quotex even during Night / Asian Session (PKT 11 PM - 11 AM)
+ASIAN_SESSION_PRIORITY_PAIRS = {
+    "USD/JPY", "AUD/JPY", "EUR/JPY", "GBP/JPY", "AUD/CAD", "AUD/USD", "EUR/USD", "GBP/USD", "CAD/JPY"
+}
+
+def is_quotex_pair_active_now(pair_name: str) -> bool:
+    """Checks if a pair is likely open on Quotex Live board based on PKT session hours."""
+    hour_pkt = datetime.now(PKT).hour
+    # Between 11 PM and 10 AM PKT, Quotex hides slow European cross pairs on Live
+    if hour_pkt >= 23 or hour_pkt < 10:
+        return pair_name in ASIAN_SESSION_PRIORITY_PAIRS
+    return True
 
 # ============================================================================
 # QUOTEX SNIPER V3 ENGINE (M1 + M5 MULTI-TIMEFRAME + FRACTAL S&R + SECOND SYNC)
@@ -185,8 +196,8 @@ def evaluate_high_accuracy_strategies(df, market_name, allow_fallback=False):
             return None
 
         # --- 1. M5 (5-Minute) Higher Timeframe Trend Calculation ---
-        df['m5_ema_fast'] = df['close'].ewm(span=25, adjust=False).mean()   # Equivalent to M5 EMA(5)
-        df['m5_ema_slow'] = df['close'].ewm(span=100, adjust=False).mean()  # Equivalent to M5 EMA(20)
+        df['m5_ema_fast'] = df['close'].ewm(span=25, adjust=False).mean()
+        df['m5_ema_slow'] = df['close'].ewm(span=100, adjust=False).mean()
         m5_bullish = df['m5_ema_fast'].iloc[-1] > df['m5_ema_slow'].iloc[-1]
         m5_bearish = df['m5_ema_fast'].iloc[-1] < df['m5_ema_slow'].iloc[-1]
 
@@ -250,10 +261,10 @@ def evaluate_high_accuracy_strategies(df, market_name, allow_fallback=False):
         now_pkt = datetime.now(PKT)
         sec = now_pkt.second
         if sec >= 32:
-            sig_c = df.iloc[-1]   # Current nearly-closed live candle
+            sig_c = df.iloc[-1]
             prev_c = df.iloc[-2]
         else:
-            sig_c = df.iloc[-2]   # Just-closed candle
+            sig_c = df.iloc[-2]
             prev_c = df.iloc[-3]
 
         atr_val = float(sig_c['atr']) if sig_c['atr'] > 0 else 0.0001
@@ -279,9 +290,7 @@ def evaluate_high_accuracy_strategies(df, market_name, allow_fallback=False):
         call_points = []
         put_points = []
 
-        # ====================================================================
-        # SETUP 1: M5 + M1 TREND PULLBACK CONTINUATION (Highest Live Winrate)
-        # ====================================================================
+        # SETUP 1: M5 + M1 TREND PULLBACK CONTINUATION
         if m5_bullish and m1_uptrend and (40 <= sig_c['rsi_14'] <= 66):
             if is_bear and sig_c['low'] <= (sig_c['ema_7'] + atr_val * 0.12) and sig_c['close'] >= sig_c['ema_21']:
                 call_points.append(("M5+M1 Uptrend Dip Rejection", 42))
@@ -294,9 +303,7 @@ def evaluate_high_accuracy_strategies(df, market_name, allow_fallback=False):
             elif prev_bull and is_bear and body > (prev_body * 0.90) and sig_c['close'] < prev_c['open']:
                 put_points.append(("M5+M1 Bearish Engulfing Continuation", 40))
 
-        # ====================================================================
-        # SETUP 2: S&R + BOLLINGER BAND + WICK REJECTION (Anti-Breakout Filtered)
-        # ====================================================================
+        # SETUP 2: S&R + BOLLINGER BAND + WICK REJECTION
         at_support = (sig_c['low'] <= sig_c['lower_bb']) and (abs(sig_c['low'] - sig_c['support_zone']) <= atr_val * 0.35)
         at_resistance = (sig_c['high'] >= sig_c['upper_bb']) and (abs(sig_c['high'] - sig_c['resistance_zone']) <= atr_val * 0.35)
 
@@ -308,9 +315,7 @@ def evaluate_high_accuracy_strategies(df, market_name, allow_fallback=False):
             if upper_wick >= (c_range * 0.35):
                 put_points.append(("S&R + Upper BB Wick Drop", 44))
 
-        # ====================================================================
         # SETUP 3: QUOTEX ORDER-BLOCK PINBAR + MACD/STOCHASTIC HOOK
-        # ====================================================================
         macd_rising = sig_c['macd_hist'] > prev_c['macd_hist']
         macd_falling = sig_c['macd_hist'] < prev_c['macd_hist']
 
@@ -324,7 +329,7 @@ def evaluate_high_accuracy_strategies(df, market_name, allow_fallback=False):
         elif m5_bearish and macd_falling and sig_c['stoch_k'] < sig_c['stoch_d'] and prev_c['stoch_k'] >= prev_c['stoch_d'] and sig_c['stoch_k'] > 40:
             put_points.append(("MACD + Stoch Death Cross", 26))
 
-        # M5 Alignment Bonus / Penalty (Never fight M5 trend!)
+        # M5 Alignment Bonus / Penalty
         if m5_bullish:
             call_points = [(r, w + 8) for r, w in call_points]
             put_points = [(r, max(0, w - 15)) for r, w in put_points]
@@ -409,9 +414,11 @@ def scan_best_live_signals(count=1):
     signals = []
     fallback_candidates = []
     try:
-        yf_tickers = list(QUOTEX_LIVE_MARKETS.values())
+        # Filter pairs that are actually open on Quotex Live board during current PKT hour
+        active_pairs = {k: v for k, v in QUOTEX_LIVE_MARKETS.items() if is_quotex_pair_active_now(k)}
+        yf_tickers = list(active_pairs.values())
         data = yf.download(tickers=yf_tickers, period="1d", interval="1m", group_by='ticker', progress=False, threads=True)
-        for pair_name, yf_sym in QUOTEX_LIVE_MARKETS.items():
+        for pair_name, yf_sym in active_pairs.items():
             try:
                 if yf_sym in data and not data[yf_sym].empty:
                     sub_df = data[yf_sym].copy().dropna(subset=['Close'])
@@ -454,7 +461,7 @@ def scan_best_live_signals(count=1):
     return signals[:count]
 
 # ============================================================================
-# BUTTON LAYOUTS (STRICTLY LIVE MARKET ONLY)
+# BUTTON LAYOUTS (STRICTLY LIVE MARKET ONLY - GROUP LINK REMOVED)
 # ============================================================================
 def get_access_gate_kb():
     return InlineKeyboardMarkup([
@@ -466,7 +473,6 @@ def get_access_gate_kb():
             InlineKeyboardButton("✍️ SUBMIT TRADER ID", callback_data="enter_trader_id")
         ],
         [
-            InlineKeyboardButton("📢 JOIN VIP GROUP", url=VIP_GROUP_URL),
             InlineKeyboardButton("🎫 CONTACT OWNER", url=f"https://t.me/{OWNER_USERNAME}")
         ]
     ])
@@ -499,11 +505,10 @@ def get_main_dashboard_kb():
             InlineKeyboardButton("🔥 TOP 3 LIVE SURESHOT SIGNALS", callback_data="auto_live_3")
         ],
         [
-            InlineKeyboardButton("📊 SELECT QUOTEX LIVE PAIR (20 PAIRS)", callback_data="list_live_0")
+            InlineKeyboardButton("📊 SELECT QUOTEX LIVE PAIR (18 PAIRS)", callback_data="list_live_0")
         ],
         [
-            InlineKeyboardButton("🎫 CONTACT OWNER", url=f"https://t.me/{OWNER_USERNAME}"),
-            InlineKeyboardButton("📢 VIP TELEGRAM GROUP", url=VIP_GROUP_URL)
+            InlineKeyboardButton("🎫 CONTACT OWNER", url=f"https://t.me/{OWNER_USERNAME}")
         ]
     ])
 
@@ -515,7 +520,7 @@ def get_pairs_grid_kb(page=0):
     sliced = markets[start_idx:end_idx]
 
     rows = [
-        [InlineKeyboardButton("🟢 AUTO SCAN BEST LIVE PAIR", callback_data="auto_live_1")]
+        [InlineKeyboardButton("🟢 AUTO SCAN OPEN LIVE PAIRS", callback_data="auto_live_1")]
     ]
 
     for i in range(0, len(sliced), 2):
@@ -524,7 +529,8 @@ def get_pairs_grid_kb(page=0):
             if i + j < len(sliced):
                 p_name = sliced[i + j]
                 idx = start_idx + i + j
-                row.append(InlineKeyboardButton(f"🟢 {p_name}", callback_data=f"pair_live_{idx}"))
+                status_dot = "🟢" if is_quotex_pair_active_now(p_name) else "🕒"
+                row.append(InlineKeyboardButton(f"{status_dot} {p_name}", callback_data=f"pair_live_{idx}"))
         rows.append(row)
 
     nav_row = []
@@ -555,14 +561,14 @@ def get_post_signal_kb(pair_idx=None):
     ])
 
 # ============================================================================
-# COLORFUL SHADED HTML TEMPLATES & RADAR ANIMATION (ALITRADER LIVE)
+# COLORFUL SHADED HTML TEMPLATES & RADAR ANIMATION
 # ============================================================================
 def format_signal_card(sig):
     global SIGNAL_COUNT
     SIGNAL_COUNT += 1
     bars = "🟩🟩🟩🟩🟩" if sig['confidence'] >= 90 else "🟩🟩🟩🟩⬜"
     return (
-        f"👾 <b>ALITRADER VIP</b> 👾\n"
+        f"👾 <b>QUOTEX VIP TERMINAL</b> 👾\n"
         f"<blockquote>━━━━━━━━ 🆓 ━━━━━━━━\n"
         f"📊 <b>LIVE PAIR :</b> <code>{sig['symbol']}</code>\n"
         f"⚡ <b>TIMEFRAME :</b> <code>M1 (1-Minute)</code>\n"
@@ -575,16 +581,15 @@ def format_signal_card(sig):
         f"🔥 <b>PRESSURE :</b> <code>{sig['power']}</code>\n"
         f"🧠 <b>STRATEGY :</b> <i>{sig['reason']}</i>\n"
         f"🟢 <b>SIGNAL COUNT :</b> <code>{SIGNAL_COUNT}</code> 🎖️\n"
-        f"🚫 <b>RULE :</b> <i>Don't trade below 80% payout!</i></blockquote>\n\n"
-        f"🔖 <b>TELEGRAM :</b> @{OWNER_USERNAME} 🌸\n"
-        f"📢 <b>VIP GROUP :</b> <a href='{VIP_GROUP_URL}'>Join AliTrader VIP</a>"
+        f"🚫 <b>RULE :</b> <i>Select Live Pair (Not OTC) &amp; 80%+ Payout!</i></blockquote>\n\n"
+        f"🔖 <b>TELEGRAM :</b> @{OWNER_USERNAME} 🌸"
     )
 
 async def play_scan_animation(msg, target_label):
     stages = [
         (
-            f"🛰️ <b>ALITRADER LIVE FOREX RADAR</b>\n"
-            f"<blockquote>🔄 <b>Step 1/3 :</b> Fetching Live Institutional Forex Feed...\n"
+            f"🛰️ <b>QUOTEX LIVE MARKET RADAR</b>\n"
+            f"<blockquote>🔄 <b>Step 1/3 :</b> Checking Open Quotex Live Pairs...\n"
             f"📡 <b>Target :</b> <code>{target_label}</code>\n"
             f"🟦🟦🟦🟦⬜⬜⬜⬜⬜⬜ <b>40%</b></blockquote>"
         ),
@@ -611,7 +616,7 @@ async def play_scan_animation(msg, target_label):
             pass
 
 GATE_HOME_TEXT = (
-    "👾 <b>ALITRADER VIP TERMINAL</b> 👾\n"
+    "👾 <b>QUOTEX VIP TERMINAL</b> 👾\n"
     "<blockquote>🔒 <b>VIP ACCESS REQUIRED</b>\n"
     "──────────────────────\n"
     "ℹ️ Unlock instant <b>Quotex Live Market Sureshot Signals</b> using one of the two options below:</blockquote>\n\n"
@@ -623,12 +628,12 @@ GATE_HOME_TEXT = (
 )
 
 DASHBOARD_TEXT = (
-    "👾 <b>ALITRADER LIVE VIP DASHBOARD</b> 👾\n"
-    "<blockquote>🟢 <b>TERMINAL STATUS :</b> <code>ONLINE (LIVE FOREX V3)</code>\n"
+    "👾 <b>QUOTEX LIVE VIP DASHBOARD</b> 👾\n"
+    "<blockquote>🟢 <b>TERMINAL STATUS :</b> <code>ONLINE (LIVE V3)</code>\n"
     "──────────────────────\n"
     "⚡ <b>Timeframe :</b> <code>1 Minute (M1 + M5 Filter)</code>\n"
-    "🧠 <b>AI Engine :</b> <code>M5+M1 Pullback + Fractal S&amp;R</code>\n"
-    "🔥 <b>Markets   :</b> <code>20 Verified Quotex Live Pairs</code>\n"
+    "🧠 <b>AI Engine :</b> <code>Session-Aware Quotex Filter</code>\n"
+    "🔥 <b>Markets   :</b> <code>18 Verified Quotex Live Pairs</code>\n"
     "🌍 <b>Timezone  :</b> <code>PKT (UTC+5)</code></blockquote>\n\n"
     "👇 <b>Tap any button below to scan Live Quotex Markets:</b>"
 )
@@ -667,12 +672,12 @@ async def adduser_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     new_uid = int(context.args[0])
     authorize_user(new_uid)
-    await update.message.reply_text(f"✅ <b>User <code>{new_uid}</code> has been granted AliTrader VIP Access!</b>", parse_mode='HTML')
+    await update.message.reply_text(f"✅ <b>User <code>{new_uid}</code> has been granted VIP Access!</b>", parse_mode='HTML')
     try:
         await context.bot.send_message(
             chat_id=new_uid,
             text=(
-                "🎉 <b>ALITRADER VIP ACCESS ACTIVATED!</b>\n"
+                "🎉 <b>VIP ACCESS ACTIVATED!</b>\n"
                 "<blockquote>💎 Your <b>VIP Access</b> has been approved by Admin!\n"
                 "Tap any button below to start generating Quotex Live signals:</blockquote>"
             ),
@@ -736,9 +741,9 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
         await verify_msg.edit_text(
             f"✅ <b>TRADER ID VERIFIED!</b>\n"
             f"<blockquote>👤 <b>Trader ID :</b> <code>#{trader_id}</code>\n"
-            f"🟢 <b>Status :</b> <code>AliTrader VIP Unlocked</code>\n"
+            f"🟢 <b>Status :</b> <code>VIP Unlocked</code>\n"
             f"──────────────────────\n"
-            f"Welcome to <b>AliTrader VIP Terminal</b>! Select any option below:</blockquote>",
+            f"Welcome to <b>VIP Terminal</b>! Select any option below:</blockquote>",
             parse_mode='HTML',
             reply_markup=get_main_dashboard_kb()
         )
@@ -813,7 +818,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     chat_id=target_uid,
                     text=(
                         f"✅ <b>TRADER ID #{t_id} VERIFIED!</b>\n"
-                        f"<blockquote>🎉 Your <b>AliTrader VIP Access</b> is now active! Tap any button below to get Live signals:</blockquote>"
+                        f"<blockquote>🎉 Your <b>VIP Access</b> is now active! Tap any button below to get Live signals:</blockquote>"
                     ),
                     parse_mode='HTML',
                     reply_markup=get_main_dashboard_kb()
@@ -851,7 +856,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "gate_free":
         context.user_data["awaiting_trader_id"] = True
         free_text = (
-            "🆓 <b>GET FREE ALITRADER VIP ACCESS</b>\n"
+            "🆓 <b>GET FREE VIP ACCESS</b>\n"
             "<blockquote>1️⃣ Click <b>CREATE QUOTEX ACCOUNT</b> below and register a new account.\n"
             "2️⃣ Copy your 8 or 9 digit <b>Trader ID</b> from your Quotex profile (e.g. <code>95420333</code>).\n"
             "3️⃣ Paste and send your <b>Trader ID</b> directly in this chat!</blockquote>\n\n"
@@ -879,7 +884,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "gate_premium":
         context.user_data["awaiting_trader_id"] = False
         prem_text = (
-            "💎 <b>BUY ALITRADER PREMIUM VIP</b>\n"
+            "💎 <b>BUY PREMIUM VIP ACCESS</b>\n"
             f"<blockquote>💰 <b>Price :</b> <code>{PREMIUM_PRICE}</code>\n"
             f"🏦 <b>Binance Pay ID :</b> <code>{BINANCE_PAY_ID}</code>\n"
             f"🆔 <b>Your Telegram ID :</b> <code>{user_id}</code></blockquote>\n\n"
@@ -917,7 +922,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         page = int(data.split("_")[-1])
         text = (
             f"🟢 <b>SELECT QUOTEX LIVE PAIR (Page {page + 1})</b>\n"
-            f"<blockquote>ℹ️ All 20 currency pairs below are 100% verified on the <b>Quotex Live Market</b> board. Tap any pair for an instant M1+M5 Signal:</blockquote>"
+            f"<blockquote>ℹ️ <b>🟢 = Active Now on Quotex Live</b>\n"
+            f"🕒 = Opens in London/NY Session (11 AM - 11 PM PKT)\n"
+            f"Tap any pair below for an instant M1+M5 Signal:</blockquote>"
         )
         await query.edit_message_text(
             text,
@@ -938,12 +945,12 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if not sig:
             closed_text = (
-                f"⚠️ <b>PAIR CURRENTLY FLAT OR CLOSED</b>\n"
-                f"<blockquote>ℹ️ <code>{pair_name} (Live)</code> is either closed (Weekend/Bank Holiday) or forming low-volume Doji candles right now.\n\n"
-                f"👇 Tap below to auto-scan all 20 Live pairs for the best active setup:</blockquote>"
+                f"⚠️ <b>PAIR CURRENTLY FLAT OR CLOSED ON QUOTEX</b>\n"
+                f"<blockquote>ℹ️ <code>{pair_name} (Live)</code> is either closed right now or forming low-volume Doji candles.\n\n"
+                f"👇 Tap below to auto-scan currently open Quotex Live pairs (`USD/JPY`, `AUD/JPY`, `EUR/USD`, etc.):</blockquote>"
             )
             kb = InlineKeyboardMarkup([
-                [InlineKeyboardButton("🟢 AUTO SCAN BEST LIVE PAIR", callback_data="auto_live_1")],
+                [InlineKeyboardButton("🟢 AUTO SCAN OPEN LIVE PAIRS", callback_data="auto_live_1")],
                 [InlineKeyboardButton("📊 Choose Another Live Pair", callback_data="list_live_0")],
                 [InlineKeyboardButton("👀 Back to Dashboard", callback_data="main_menu")]
             ])
@@ -961,7 +968,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data.startswith("auto_live_"):
         count = int(data.split("_")[-1])
-        label = "20 QUOTEX LIVE FOREX PAIRS"
+        label = "OPEN QUOTEX LIVE PAIRS"
 
         await play_scan_animation(query.message, label)
         found_signals = await asyncio.to_thread(scan_best_live_signals, count)
@@ -998,7 +1005,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
 
 def run_bot():
-    logger.info("Starting AliTrader Live VIP Telegram Bot...")
+    logger.info("Starting Quotex Live VIP Telegram Bot...")
     telegram_app = Application.builder().token(TOKEN).build()
 
     telegram_app.add_handler(CommandHandler("start", start))
